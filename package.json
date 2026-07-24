@@ -6,12 +6,13 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "db:create": "wrangler d1 create eco-geo-db",
-    "db:migrate": "wrangler d1 execute eco-geo-db --file=schema.sql",
-    "db:migrate:local": "wrangler d1 execute eco-geo-db --local --file=schema.sql"
+    "db:migrate": "wrangler d1 execute eco-geo-db --remote --file=schema.sql",
+    "db:migrate:local": "wrangler d1 execute eco-geo-db --local --file=schema.sql",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260701.0",
     "typescript": "^5.5.0",
-    "wrangler": "^3.99.0"
+    "wrangler": "4.92.0"
   }
 }
