@@ -30,13 +30,33 @@ export default {
       return handleDashboard(env);
     }
 
-    // API 路由（需要鉴权）
-    const authResult = await authenticate(request, env);
+    // 公开看板需要读取数据；写入与管理操作仍需 API Key。
+    const isPublicRead =
+      request.method === 'GET' &&
+      (
+        path === '/api/v1/monitoring' ||
+        path === '/api/v1/monitoring/weekly' ||
+        path === '/api/v1/brands'
+      );
+
+    const authResult = isPublicRead
+      ? { ok: true, permission: 'read' }
+      : await authenticate(request, env);
+
     if (!authResult.ok) {
       return Response.json({ error: authResult.error }, { status: 401, headers: corsHeaders() });
     }
 
     try {
+      // ===== 鉴权检查（用于外部工作流接入自检） =====
+      if (path === '/api/v1/auth/check' && request.method === 'GET') {
+        return Response.json({
+          ok: true,
+          key_name: authResult.keyName,
+          permission: authResult.permission
+        }, { headers: corsHeaders() });
+      }
+
       // ===== 监测数据 =====
       if (path === '/api/v1/monitoring' && request.method === 'POST') {
         if (authResult.permission !== 'write' && authResult.permission !== 'admin') {
