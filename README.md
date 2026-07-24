@@ -129,3 +129,8 @@ X-API-Key: your-api-key-here
 ## License
 
 Private - ECO Team
+
+
+## 自动部署
+
+`main` 分支的新提交会由 Cloudflare Workers Builds 自动构建并部署。
