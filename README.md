@@ -98,9 +98,15 @@ npm run deploy
 
 品牌列表
 
+### GET /api/v1/auth/check
+
+验证 API Key 是否有效并返回密钥名称与权限（需要 API Key）。
+
 ## API 鉴权
 
-所有 `/api/v1/*` 请求需要在 Header 中传入 API Key：
+公开看板所需的只读接口（`GET /api/v1/monitoring`、`GET /api/v1/monitoring/weekly`、`GET /api/v1/brands`）无需 API Key。
+
+写入及管理请求需要在 Header 中传入 API Key：
 
 ```
 X-API-Key: your-api-key-here
