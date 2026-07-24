@@ -35,7 +35,7 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
     <!-- 筛选栏 -->
     <div class="flex gap-4 items-center flex-wrap">
       <label class="text-sm text-gray-600">周次：</label>
-      <input type="week" id="weekPicker" class="border rounded px-3 py-1.5 text-sm">
+      <input type="date" id="weekPicker" class="border rounded px-3 py-1.5 text-sm">
       <button onclick="loadData()" class="bg-blue-600 text-white px-4 py-1.5 rounded text-sm hover:bg-blue-700">查询</button>
       <span id="statusText" class="text-sm text-gray-400"></span>
     </div>
@@ -106,8 +106,10 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
         const res = await fetch('/api/v1/monitoring?week=' + week);
         const json = await res.json();
         
-        renderSummary(json.data);
-        renderTable(json.data);
+        const rows = Array.isArray(json.data) ? json.data : [];
+        renderSummary(rows);
+        renderCharts(rows);
+        renderTable(rows);
         document.getElementById('statusText').textContent = '共 ' + json.total + ' 条 · 更新于 ' + new Date().toLocaleTimeString();
       } catch (e) {
         document.getElementById('statusText').textContent = '加载失败: ' + e.message;
@@ -115,27 +117,79 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
     }
 
     function renderSummary(data) {
-      if (!data || data.length === 0) return;
       const total = data.length;
       const mentioned = data.filter(d => d.score >= 1).length;
       const recommended = data.filter(d => d.score >= 2).length;
       const first = data.filter(d => d.score === 3).length;
 
       document.getElementById('cardTotal').textContent = total;
-      document.getElementById('cardMention').textContent = (mentioned / total * 100).toFixed(1) + '%';
-      document.getElementById('cardRecommend').textContent = (recommended / total * 100).toFixed(1) + '%';
-      document.getElementById('cardFirst').textContent = (first / total * 100).toFixed(1) + '%';
+      document.getElementById('cardMention').textContent = total ? (mentioned / total * 100).toFixed(1) + '%' : '0%';
+      document.getElementById('cardRecommend').textContent = total ? (recommended / total * 100).toFixed(1) + '%' : '0%';
+      document.getElementById('cardFirst').textContent = total ? (first / total * 100).toFixed(1) + '%' : '0%';
     }
 
     const providerNames = { doubao: '豆包', deepseek: 'DeepSeek', kimi: 'Kimi', tongyi: '通义', yuanbao: '元宝', wenxin: '文心' };
     const scoreNames = { 0: '未提及', 1: '仅提及', 2: '推荐', 3: '首位推荐' };
+    let providerChart;
+    let scoreChart;
+
+    function renderCharts(data) {
+      const providers = Object.keys(providerNames);
+      const providerAverages = providers.map(provider => {
+        const rows = data.filter(row => row.ai_provider === provider);
+        return rows.length
+          ? Number((rows.reduce((sum, row) => sum + Number(row.score || 0), 0) / rows.length).toFixed(2))
+          : 0;
+      });
+      const scoreCounts = [0, 1, 2, 3].map(score => data.filter(row => Number(row.score) === score).length);
+
+      if (providerChart) providerChart.destroy();
+      providerChart = new Chart(document.getElementById('providerChart'), {
+        type: 'bar',
+        data: {
+          labels: providers.map(provider => providerNames[provider]),
+          datasets: [{
+            label: '平均评分',
+            data: providerAverages,
+            backgroundColor: '#2563eb'
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: { y: { beginAtZero: true, max: 3 } }
+        }
+      });
+
+      if (scoreChart) scoreChart.destroy();
+      scoreChart = new Chart(document.getElementById('scoreChart'), {
+        type: 'doughnut',
+        data: {
+          labels: [scoreNames[0], scoreNames[1], scoreNames[2], scoreNames[3]],
+          datasets: [{
+            data: scoreCounts,
+            backgroundColor: ['#ef4444', '#f59e0b', '#10b981', '#059669']
+          }]
+        },
+        options: { responsive: true }
+      });
+    }
+
+    function escapeHtml(value) {
+      return value.replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+      })[char]);
+    }
 
     function renderTable(data) {
       const tbody = document.getElementById('detailTable');
       tbody.innerHTML = data.map(d => \`
         <tr class="border-b hover:bg-gray-50">
           <td class="py-2">\${providerNames[d.ai_provider] || d.ai_provider}</td>
-          <td class="py-2 max-w-xs truncate">\${d.question_snapshot}</td>
+          <td class="py-2 max-w-xs truncate">\${escapeHtml(String(d.question_snapshot || ''))}</td>
           <td class="py-2"><span class="px-2 py-0.5 rounded text-xs score-\${d.score}">\${scoreNames[d.score]}</span></td>
           <td class="py-2 font-mono">\${d.score}/3</td>
         </tr>
