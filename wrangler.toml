@@ -1,6 +1,7 @@
 name = "eco-geo-workers"
 main = "src/index.ts"
 compatibility_date = "2026-07-01"
+account_id = "26f762ef75957b4f280f303aaa91e689"
 
 [vars]
 ENVIRONMENT = "production"
@@ -8,7 +9,7 @@ ENVIRONMENT = "production"
 [[d1_databases]]
 binding = "DB"
 database_name = "eco-geo-db"
-database_id = "<YOUR_D1_DATABASE_ID>"
+database_id = "cfc854b6-a7c3-4b2e-bac3-2bf506fbadb4"
 
 [dev]
 port = 8787
