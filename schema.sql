@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS brands (
   name TEXT NOT NULL UNIQUE,
   category TEXT NOT NULL DEFAULT '洗护',
   keywords TEXT,           -- JSON array: ["ECO", "有机洗发水"]
+  is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
