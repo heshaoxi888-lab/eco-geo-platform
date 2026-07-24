@@ -27,11 +27,11 @@ type WorkspaceRow = {
 export async function handleCollaboration(request: Request, env: Env): Promise<Response> {
   const path = new URL(request.url).pathname;
   try {
-    if (path === '/api/bootstrap' && request.method === 'GET') return handleBootstrap(request, env);
-    if (path === '/api/state' && request.method === 'GET') return handleStateGet(request, env);
-    if (path === '/api/state' && request.method === 'PUT') return handleStatePut(request, env);
-    if (path === '/api/members') return handleMembers(request, env);
-    if (path === '/api/logs' && request.method === 'GET') return handleLogs(request, env);
+    if (path === '/api/bootstrap' && request.method === 'GET') return await handleBootstrap(request, env);
+    if (path === '/api/state' && request.method === 'GET') return await handleStateGet(request, env);
+    if (path === '/api/state' && request.method === 'PUT') return await handleStatePut(request, env);
+    if (path === '/api/members') return await handleMembers(request, env);
+    if (path === '/api/logs' && request.method === 'GET') return await handleLogs(request, env);
     return Response.json({ ok: false, error: 'not found' }, { status: 404 });
   } catch (error) {
     return teamJsonError(error);
