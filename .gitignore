@@ -1,7 +1,9 @@
 node_modules/
 .wrangler/
+.wrangler-dry-run/
 .dev.vars
 .api-key.local
+.team-owner-key.local
 *.log
 .env
 .DS_Store

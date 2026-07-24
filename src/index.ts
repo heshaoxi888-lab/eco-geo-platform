@@ -1,11 +1,12 @@
 // ECO GEO Workers API - 主入口
 import { handleMonitoringWrite, handleMonitoringQuery, handleWeeklyReport } from './api/monitoring';
 import { handleBrandsList, handleBrandsCreate } from './api/brands';
-import { handleDashboard } from './api/dashboard';
+import { handleCollaboration } from './api/collaboration';
 import { authenticate, corsHeaders } from './middleware/auth';
 
 export interface Env {
   DB: D1Database;
+  ASSETS: Fetcher;
   ENVIRONMENT: string;
   API_SALT: string;
 }
@@ -25,9 +26,19 @@ export default {
       return Response.json({ status: 'ok', ts: Date.now() });
     }
 
-    // 前端页面（无需鉴权）
-    if (path === '/' || path === '/index.html') {
-      return handleDashboard(env);
+    // ===== 完整工作流看板的 D1 团队协作 API =====
+    if (
+      path === '/api/bootstrap' ||
+      path === '/api/state' ||
+      path === '/api/members' ||
+      path === '/api/logs'
+    ) {
+      return handleCollaboration(request, env);
+    }
+
+    // 页面与静态资源公开访问；团队数据仍由 /api/* 的独立成员密钥保护。
+    if (!path.startsWith('/api/')) {
+      return env.ASSETS.fetch(request);
     }
 
     // 公开看板需要读取数据；写入与管理操作仍需 API Key。

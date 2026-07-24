@@ -40,8 +40,8 @@ export async function authenticate(request: Request, env: Env): Promise<AuthResu
 export function corsHeaders(): Headers {
   return new Headers({
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-API-Key',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-API-Key, X-Team-Key',
     'Access-Control-Max-Age': '86400'
   });
 }

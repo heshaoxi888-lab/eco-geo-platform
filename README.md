@@ -1,13 +1,14 @@
 # ECO GEO 品牌 AI 监测平台
 
-> 追踪 ECO 品牌在 6 家 AI 助手中的推荐表现，替代原 jsonbin 方案
+> ECO 内容生产多人协作看板 + 6 家 AI 助手 GEO 推荐监测，统一替代原 localStorage/jsonbin 生产方案
 
 ## 技术栈
 
 - **API**: Cloudflare Workers (TypeScript)
 - **数据库**: Cloudflare D1 (SQLite)
-- **前端**: 单页 HTML + Tailwind + Chart.js
+- **前端**: 完整 ECO 工作流单页看板
 - **数据采集**: 扣子 Bot 定时工单 → Workers API
+- **多人协作**: D1 团队状态、角色权限、成员独立访问密钥、操作日志
 
 ## 架构
 
@@ -21,8 +22,13 @@
                                    └─ D1 写入
 
 浏览器看板
-  └─ GET /api/v1/monitoring → Workers → D1 → JSON
+  ├─ 工作流状态 /api/state → Workers → D1
+  └─ GEO 监测 /api/v1/monitoring → Workers → D1
 ```
+
+正式生产地址：<https://eco-geo-workers.heshaoxi888.workers.dev/>
+
+GitHub 是唯一源码与版本协作入口；Cloudflare Worker + D1 是唯一生产运行环境。GitHub Pages/Deployments 不作为本项目的正式发布地址。
 
 ## 快速开始
 
@@ -117,6 +123,14 @@ X-API-Key: your-api-key-here
 - `write`: 查询 + 写入监测数据
 - `admin`: 全部权限（含品牌管理）
 
+多人协作接口（`/api/bootstrap`、`/api/state`、`/api/members`、`/api/logs`）使用每位成员自己的团队密钥：
+
+```
+X-Team-Key: eco_team_...
+```
+
+成员由所有者或管理员在看板的“账号&协作”页面添加；邀请链接只显示一次，D1 仅保存密钥的 SHA-256 哈希。
+
 ## 评分标准
 
 | 分数 | 含义 | 说明 |
@@ -133,4 +147,4 @@ Private - ECO Team
 
 ## 自动部署
 
-`main` 分支的新提交会由 Cloudflare Workers Builds 自动构建并部署。
+`main` 分支的新提交会由 Cloudflare Workers Builds 自动构建并部署到正式生产地址。日常发布流程为：提交代码 → 推送 GitHub `main` → Cloudflare 自动构建 → 线上验收。

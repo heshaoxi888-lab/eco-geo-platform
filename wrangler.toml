@@ -11,5 +11,11 @@ binding = "DB"
 database_name = "eco-geo-db"
 database_id = "cfc854b6-a7c3-4b2e-bac3-2bf506fbadb4"
 
+[assets]
+directory = "./public"
+binding = "ASSETS"
+html_handling = "auto-trailing-slash"
+not_found_handling = "single-page-application"
+
 [dev]
 port = 8787

@@ -77,3 +77,59 @@ CREATE INDEX IF NOT EXISTS idx_monitoring_brand ON geo_monitoring(brand_id);
 CREATE INDEX IF NOT EXISTS idx_monitoring_score ON geo_monitoring(score);
 CREATE INDEX IF NOT EXISTS idx_monitoring_provider ON geo_monitoring(ai_provider);
 CREATE INDEX IF NOT EXISTS idx_weekly_report_week ON weekly_reports(week_start_date);
+
+-- 完整工作流看板：团队工作空间
+CREATE TABLE IF NOT EXISTS team_workspaces (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 0,
+  state_json TEXT,
+  updated_at INTEGER NOT NULL,
+  updated_by TEXT
+);
+
+-- 完整工作流看板：团队成员与角色
+CREATE TABLE IF NOT EXISTS team_members (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  email TEXT NOT NULL,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL CHECK(role IN ('owner','admin','editor','viewer')),
+  status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled')),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  last_seen_at INTEGER
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS team_members_workspace_email_idx
+  ON team_members(workspace_id, email);
+
+-- 每位团队成员独立访问密钥；仅保存 SHA-256 哈希
+CREATE TABLE IF NOT EXISTS team_access_keys (
+  id TEXT PRIMARY KEY,
+  member_id TEXT NOT NULL,
+  key_hash TEXT NOT NULL UNIQUE,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  last_used_at INTEGER,
+  FOREIGN KEY(member_id) REFERENCES team_members(id)
+);
+
+CREATE INDEX IF NOT EXISTS team_access_keys_member_idx ON team_access_keys(member_id);
+
+-- 团队操作日志
+CREATE TABLE IF NOT EXISTS team_activity_logs (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  actor_email TEXT NOT NULL,
+  action TEXT NOT NULL,
+  target TEXT,
+  details TEXT,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS team_activity_logs_workspace_created_idx
+  ON team_activity_logs(workspace_id, created_at DESC);
+
+INSERT OR IGNORE INTO team_workspaces (id, name, version, state_json, updated_at)
+VALUES ('eco-main', 'ECO 内容运营团队', 0, NULL, unixepoch('now') * 1000);
