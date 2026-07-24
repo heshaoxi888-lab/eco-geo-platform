@@ -1,0 +1,14 @@
+name = "eco-geo-workers"
+main = "src/index.ts"
+compatibility_date = "2026-07-01"
+
+[vars]
+ENVIRONMENT = "production"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "eco-geo-db"
+database_id = "<YOUR_D1_DATABASE_ID>"
+
+[dev]
+port = 8787
