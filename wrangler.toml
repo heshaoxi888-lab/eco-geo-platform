@@ -2,6 +2,7 @@ name = "eco-geo-workers"
 main = "src/index.ts"
 compatibility_date = "2026-07-01"
 account_id = "26f762ef75957b4f280f303aaa91e689"
+workers_dev = false
 
 [vars]
 ENVIRONMENT = "production"
