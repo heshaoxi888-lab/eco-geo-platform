@@ -4837,7 +4837,7 @@ function renderAccountTab(){
     <div class="collab-desc">
       团队数据保存在 Cloudflare D1，由 Cloudflare Access 登录邮箱自动识别身份。系统支持所有者、管理员、编辑者和查看者四种权限；管理员添加成员邮箱后，对方即可直接登录。
     </div>
-    <div class="cloud-note">🔐 当前成员：<strong>${escHtml(cloudSession.user?.name||cloudSession.user?.email||'尚未连接')}</strong>${cloudSession.user?`（${roleLabel(cloudSession.user.role)}）`:''}。AI Token 仍只保存在当前浏览器，不会同步到团队数据库。</div>
+    <div class="cloud-note">🔐 当前成员：<strong>${escHtml(cloudSession.user?.name||cloudSession.user?.email||'尚未连接')}</strong>${cloudSession.user?`（${roleLabel(cloudSession.user.role)}）`:''}。扣子 PAT 由 Cloudflare 安全托管；仅豆包/DeepSeek 备用 Key 保存在当前浏览器，不同步到团队数据库。</div>
     ${canManage?`<div class="collab-form" style="margin-top:12px">
       <div class="field"><label>成员邮箱</label><input type="email" id="teamEmail" placeholder="name@company.com"></div>
       <div class="field"><label>显示名称</label><input type="text" id="teamName" placeholder="团队成员姓名"></div>
