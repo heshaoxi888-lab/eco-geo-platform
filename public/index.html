@@ -725,36 +725,26 @@ const AI_TOPIC_POOL = [
 
 /* ========== AI 母稿生成引擎 ========== */
 
-/* ========== v4.0 真AI生成（扣子Bot直连 + 豆包/DeepSeek兜底） ========== */
+/* ========== v4.1 真AI生成（扣子由 Cloudflare 安全托管 + 豆包/DeepSeek兜底） ========== */
+const serverAI = {loaded:false, configured:false, provider:'coze', managedBy:'', error:''};
 const AI_PROVIDERS = {
   coze: {
-    name: '扣子Bot（知识库在扣子维护）',
+    name: '扣子Bot（Cloudflare 安全托管）',
     buildReq: (cfg, messages) => {
-      // messages最后一条是用户query，system拼在前面
       const sysMsg = messages.find(m=>m.role==='system');
       const userMsg = messages.filter(m=>m.role==='user').pop();
-      const userQuery = (sysMsg?sysMsg.content+'\n\n':'') + (userMsg?userMsg.content:'');
       return {
-        url: 'https://api.coze.cn/open_api/v2/chat',
+        url: '/api/ai/chat',
         opts: {
           method:'POST',
-          headers:{'Content-Type':'application/json','Authorization':'Bearer '+cfg.cozePat},
-          body: JSON.stringify({
-            bot_id: cfg.cozeBotId,
-            user: 'eco_dashboard_'+(cfg.cozePat.slice(-8)||'anon'),
-            query: userQuery,
-            stream: false
-          })
+          credentials:'same-origin',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({systemPrompt:sysMsg?sysMsg.content:'',userPrompt:userMsg?userMsg.content:''})
         }
       };
     },
-    parseResp: (d) => {
-      // Coze v2/chat 返回 messages 数组，type=answer 的是最终回答
-      if(!d||!d.messages) return '';
-      const answers = d.messages.filter(m=>m.type==='answer');
-      return answers.length? answers[answers.length-1].content : '';
-    },
-    configured: (cfg) => !!(cfg.cozePat && cfg.cozeBotId)
+    parseResp: (d) => (d&&d.answer)||'',
+    configured: () => serverAI.configured
   },
   doubao: {
     name: '豆包（火山方舟）',
@@ -813,9 +803,10 @@ async function callAI(systemPrompt, userPrompt){
   const a = state.config.ai||{};
   const provider = AI_PROVIDERS[a.provider]||AI_PROVIDERS.coze;
   if(!provider.configured(a)){
-    throw new Error('AI未配置，请去「账号&协作」Tab填扣子Bot PAT+Bot ID（或豆包/DeepSeek Key）');
+    throw new Error(a.provider==='coze'
+      ? '扣子服务尚未由 Cloudflare 配置完成，请联系管理员'
+      : 'AI未配置，请去「账号&协作」填写豆包/DeepSeek Key');
   }
-  // 沙箱检测：扣子/豆包/DeepSeek在iframe预览里都会被CORS拦截
   const req = provider.buildReq(a, [
     {role:'system', content: systemPrompt},
     {role:'user', content: userPrompt}
@@ -831,16 +822,12 @@ async function callAI(systemPrompt, userPrompt){
   }
   if(!resp.ok){
     let errMsg = 'HTTP '+resp.status;
-    try{ const e=await resp.json(); errMsg = e.msg||e.error?.message||e.message||errMsg; }catch(_){}
-    if(resp.status===401) errMsg = '鉴权失败，请检查PAT/API Key是否正确（401）';
-    if(resp.status===404&&a.provider==='coze') errMsg = 'Bot ID 不存在或无权限访问（404）';
+    try{ const e=await resp.json(); errMsg = e.msg||(typeof e.error==='string'?e.error:e.error?.message)||e.message||errMsg; }catch(_){}
+    if(resp.status===401&&a.provider==='coze') errMsg = '团队登录已失效，请刷新页面后重新登录';
+    else if(resp.status===401) errMsg = '鉴权失败，请检查 API Key 是否正确（401）';
     throw new Error(errMsg);
   }
   const data = await resp.json();
-  // coze返回code非0也要报错
-  if(a.provider==='coze'&&data.code&&data.code!==0){
-    throw new Error('扣子API错误: '+(data.msg||'code='+data.code));
-  }
   const text = provider.parseResp(data);
   if(!text) throw new Error('AI返回内容为空');
   return text.trim();
@@ -1418,7 +1405,7 @@ let state = {
   config: {
     currentWeek: getWeekOffset(0),
     collab: {enabled:true, provider:'cloudflare-d1', nickname:'', interval:10000},
-    ai: {provider:'coze', cozePat:'', cozeBotId:'', doubaoKey:'', doubaoModel:'doubao-seed-1-6-flash', deepseekKey:'', deepseekModel:'deepseek-chat'},
+    ai: {provider:'coze', doubaoKey:'', doubaoModel:'doubao-seed-1-6-flash', deepseekKey:'', deepseekModel:'deepseek-chat'},
     demoCleared:false,
     guideShown:false
   },
@@ -1652,6 +1639,22 @@ async function cloudRequest(url, options={}){
   return data;
 }
 
+async function loadAIServiceStatus(){
+  try{
+    const data=await cloudRequest('/api/ai/status');
+    serverAI.loaded=true;
+    serverAI.configured=!!data.configured;
+    serverAI.provider=data.provider||'coze';
+    serverAI.managedBy=data.managedBy||'';
+    serverAI.error='';
+  }catch(error){
+    serverAI.loaded=true;
+    serverAI.configured=false;
+    serverAI.error=error.message||'无法读取 AI 服务状态';
+  }
+  return serverAI.configured;
+}
+
 async function cloudBootstrap(){
   collabSetStatus('syncing');
   try{
@@ -1708,10 +1711,11 @@ function applyRemoteDashboardState(remote){
   state.config=state.config||{};
   state.config.ai={
     ...(state.config.ai||{}),
-    cozePat:localAI.cozePat||'',
     doubaoKey:localAI.doubaoKey||'',
     deepseekKey:localAI.deepseekKey||''
   };
+  delete state.config.ai.cozePat;
+  delete state.config.ai.cozeBotId;
 }
 
 function mergeRemote(remote){
@@ -4767,6 +4771,7 @@ async function testAIConnection(){
   const el = document.getElementById('aiTestResult');
   if(el) el.innerHTML = '<span style="color:var(--c-accent)">⏳ 测试中…</span>';
   try{
+    if((state.config.ai?.provider||'coze')==='coze') await loadAIServiceStatus();
     const testPrompt = '请用一句话回答：ECO防晒霜的核心卖点是什么？';
     const result = await callAI('你是ECO化妆品助手，简短回答即可。', testPrompt);
     if(el) el.innerHTML = '<span style="color:#22C55E">✅ 连接成功！AI回复：' + result.slice(0,80) + (result.length>80?'…':'') + '</span>';
@@ -4785,22 +4790,22 @@ function renderAccountTab(){
     <h3>🤖 AI 服务配置</h3>
     <div class="collab-desc">
       配置 AI 大模型后，「AI生成母稿」和「AI一键生成裂变」将真正调用大模型生成内容。<br>
-      <strong>推荐：扣子Bot</strong>——在扣子平台创建 Bot 并挂载 ECO 知识库，知识在扣子侧统一维护，无需在网页重复录入。<br>
+      <strong>推荐：扣子Bot</strong>——PAT 由 Cloudflare Worker Secret 安全托管，团队成员登录后自动使用；知识在扣子侧统一维护。<br>
       <strong>备选：</strong>豆包 / DeepSeek 直连（免费额度用完后切换回扣子付费算力）。
     </div>
     <div class="collab-form">
       <div class="field"><label>AI 服务商</label>
         <select id="aiProvider" onchange="state.config.ai.provider=this.value;lsSave();render()">
-          <option value="coze"${prov==='coze'?' selected':''}>扣子 Bot（推荐·知识库在扣子维护）</option>
+          <option value="coze"${prov==='coze'?' selected':''}>扣子 Bot（推荐·Cloudflare 安全托管）</option>
           <option value="doubao"${prov==='doubao'?' selected':''}>豆包（火山方舟·免费额度）</option>
           <option value="deepseek"${prov==='deepseek'?' selected':''}>DeepSeek</option>
         </select>
       </div>
       ${prov==='coze'?`
-      <div class="field"><label>扣子 Bot API Token（PAT）</label>
-        <input type="password" id="aiCozePat" value="${aic.cozePat||''}" placeholder="pat_xxxxxxxxxxxxxxxx" oninput="state.config.ai.cozePat=this.value;lsSave()"></div>
-      <div class="field"><label>扣子 Bot ID</label>
-        <input type="text" id="aiCozeBotId" value="${aic.cozeBotId||''}" placeholder="在扣子 Bot 详情页 URL 中获取" oninput="state.config.ai.cozeBotId=this.value;lsSave()"></div>
+      <div class="field"><label>扣子连接方式</label>
+        <div style="padding:9px 11px;border:1px solid #B7E4C7;border-radius:6px;background:#F0FFF4;color:#176B43">
+          🔐 Cloudflare 安全托管 · 无需输入 PAT 或 Bot ID
+        </div></div>
       `:''}
       ${prov==='doubao'?`
       <div class="field"><label>豆包 API Key</label>
@@ -4822,16 +4827,7 @@ function renderAccountTab(){
     <div class="collab-status-line ${aiConfigured()?'ok':'off'}">
       ${aiConfigured()?'✅ AI 服务已配置，生成母稿/裂变时将调用真实 AI':'⚪ AI 未配置，将使用离线模板生成（质量有限）'}
     </div>
-    ${prov==='coze'?`<details style="margin-top:10px;font-size:12px;color:var(--c-muted)"><summary style="cursor:pointer;color:var(--c-primary)">📖 如何获取扣子 Bot PAT 和 Bot ID？</summary>
-      <ol style="margin:8px 0;padding-left:20px;line-height:1.8">
-        <li>登录 <a href="https://www.coze.cn" target="_blank" style="color:var(--c-primary)">coze.cn</a>，创建一个 Bot</li>
-        <li>在 Bot 的<strong>知识库</strong>中上传/录入 ECO 相关资料（产品成分、品牌调性、合规要求、爆款模板等）</li>
-        <li>进入 Bot 的<strong>发布</strong>页面 → 发布为 <strong>API</strong></li>
-        <li>在 <a href="https://www.coze.cn/open/api" target="_blank" style="color:var(--c-primary)">coze.cn/open/api</a> 页面创建 Personal Access Token（PAT）</li>
-        <li>Bot ID 在 Bot 详情页的 URL 中可以找到（如 bot/7xxxxxxxx 中的数字）</li>
-        <li>将 PAT 和 Bot ID 填入上方配置，点击「测试连接」验证</li>
-      </ol>
-    </details>`:''}
+    ${prov==='coze'?`<div style="margin-top:10px;font-size:12px;color:var(--c-muted)">成员只需通过 Cloudflare Access 登录。PAT 不会下发到网页、浏览器本地存储或 D1。</div>`:''}
   </div>`;
 
   // Cloudflare 团队空间
@@ -5105,6 +5101,10 @@ async function init(){
   if(!state.persons) state.persons = PERSONS.map(p=>({...p,goal:10,done:0}));
   if(!state.budget) state.budget={total:9800,spent:0};
   if(!state.config) state.config={};
+  if(!state.config.ai) state.config.ai={provider:'coze',doubaoKey:'',doubaoModel:'doubao-seed-1-6-flash',deepseekKey:'',deepseekModel:'deepseek-chat'};
+  delete state.config.ai.cozePat;
+  delete state.config.ai.cozeBotId;
+  lsSave();
   if(!state.config.collab) state.config.collab={enabled:true,provider:'cloudflare-d1',nickname:'',interval:10000};
   state.config.collab.enabled=true;
   state.config.collab.provider='cloudflare-d1';
@@ -5117,6 +5117,7 @@ async function init(){
   render();
   // 使用 Cloudflare Access 登录邮箱连接 D1 团队空间
   const connected=await cloudBootstrap();
+  await loadAIServiceStatus();
   await loadGeoMonitoring();
   setupDraftProxies();
   render();

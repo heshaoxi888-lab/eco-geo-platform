@@ -22,3 +22,18 @@ test('adding a member relies on the Access email and does not create invite secr
   const source = await read('src/api/collaboration.ts');
   assert.doesNotMatch(source, /inviteKey|inviteUrl|createTeamAccessKey/);
 });
+
+test('Coze credentials stay in the Worker and are never rendered into the dashboard', async () => {
+  const worker = await read('src/api/ai.ts');
+  const html = await read('public/index.html');
+  const config = await read('wrangler.toml');
+
+  assert.match(worker, /env\.COZE_PAT/);
+  assert.match(worker, /requireTeamMember/);
+  assert.match(worker, /assertTeamSameOrigin/);
+  assert.match(html, /\/api\/ai\/chat/);
+  assert.match(html, /Cloudflare 安全托管/);
+  assert.doesNotMatch(html, /aiCozePat|aiCozeBotId|Bearer ['"]?\+cfg\.cozePat/);
+  assert.doesNotMatch(config, /COZE_PAT\s*=/);
+  assert.doesNotMatch(`${worker}\n${html}\n${config}`, /pat_[A-Za-z0-9_-]{20,}/);
+});

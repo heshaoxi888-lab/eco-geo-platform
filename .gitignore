@@ -5,6 +5,7 @@ node_modules/
 .dev.vars
 .api-key.local
 .team-owner-key.local
+.coze-pat.local
 *.log
 .env
 .DS_Store

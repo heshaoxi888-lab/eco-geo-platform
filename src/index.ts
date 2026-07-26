@@ -2,6 +2,7 @@
 import { handleMonitoringWrite, handleMonitoringQuery, handleWeeklyReport } from './api/monitoring';
 import { handleBrandsList, handleBrandsCreate } from './api/brands';
 import { handleCollaboration } from './api/collaboration';
+import { handleAI } from './api/ai';
 import { authenticate, corsHeaders } from './middleware/auth';
 
 export interface Env {
@@ -11,6 +12,8 @@ export interface Env {
   API_SALT: string;
   TEAM_DOMAIN: string;
   POLICY_AUD: string;
+  COZE_PAT: string;
+  COZE_BOT_ID: string;
   DEV_USER_EMAIL?: string;
 }
 
@@ -37,6 +40,11 @@ export default {
       path === '/api/logs'
     ) {
       return handleCollaboration(request, env);
+    }
+
+    // 扣子 PAT 仅保存在 Worker Secret 中，登录成员通过同源接口自动使用。
+    if (path === '/api/ai/status' || path === '/api/ai/chat') {
+      return handleAI(request, env);
     }
 
     // 页面由 Cloudflare Access 保护；团队 API 校验 Access JWT，成员密钥仅作应急回退。

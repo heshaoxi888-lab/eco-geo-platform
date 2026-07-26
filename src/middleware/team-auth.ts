@@ -276,7 +276,6 @@ export function cleanTeamDashboardState(input: unknown): string {
   if (state.config.ai) {
     state.config.ai = {
       provider: state.config.ai.provider || 'coze',
-      cozeBotId: state.config.ai.cozeBotId || '',
       doubaoModel: state.config.ai.doubaoModel || 'doubao-seed-1-6-flash',
       deepseekModel: state.config.ai.deepseekModel || 'deepseek-chat'
     };

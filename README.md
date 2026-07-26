@@ -24,6 +24,7 @@
 浏览器看板
   ├─ Cloudflare Access 邮箱认证
   ├─ 工作流状态 /api/state → Workers → D1
+  ├─ 内容生成 /api/ai/chat → Workers → 扣子 Bot
   └─ GEO 监测 /api/v1/monitoring → Workers → D1
 ```
 
@@ -75,6 +76,18 @@ npm run dev                 # http://localhost:8787
 ```bash
 npm run deploy
 ```
+
+### 扣子 Bot 自动连接
+
+扣子 PAT 只保存在 Cloudflare Worker Secret 中，不写入 Git、D1、网页源码或浏览器本地存储。Bot ID 配置在 `wrangler.toml` 的 `COZE_BOT_ID`；团队成员通过 Cloudflare Access 登录后会自动使用统一 Bot，无需各自填写。
+
+首次配置或轮换 PAT：
+
+```bash
+npx wrangler secret put COZE_PAT
+```
+
+状态检查使用 `GET /api/ai/status`，真实生成使用 `POST /api/ai/chat`。这两个接口均校验 Cloudflare Access 身份和 D1 成员状态。
 
 ## API 文档
 
