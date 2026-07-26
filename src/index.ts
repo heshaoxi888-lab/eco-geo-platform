@@ -9,6 +9,9 @@ export interface Env {
   ASSETS: Fetcher;
   ENVIRONMENT: string;
   API_SALT: string;
+  TEAM_DOMAIN: string;
+  POLICY_AUD: string;
+  DEV_USER_EMAIL?: string;
 }
 
 export default {
@@ -36,7 +39,7 @@ export default {
       return handleCollaboration(request, env);
     }
 
-    // 页面与静态资源公开访问；团队数据仍由 /api/* 的独立成员密钥保护。
+    // 页面由 Cloudflare Access 保护；团队 API 校验 Access JWT，成员密钥仅作应急回退。
     if (!path.startsWith('/api/')) {
       return env.ASSETS.fetch(request);
     }

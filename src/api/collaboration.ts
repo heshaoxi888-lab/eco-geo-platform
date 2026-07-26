@@ -4,8 +4,6 @@ import {
   TeamApiError,
   assertTeamSameOrigin,
   cleanTeamDashboardState,
-  createTeamAccessKey,
-  hashTeamKey,
   listTeamMembers,
   normalizeTeamEmail,
   requireTeamMember,
@@ -133,7 +131,6 @@ async function handleMembers(request: Request, env: Env): Promise<Response> {
     if (existing) {
       await env.DB.prepare(`UPDATE team_members SET name = ?, role = ?, status = 'active', updated_at = ? WHERE id = ?`)
         .bind(name, role, now, memberId).run();
-      await env.DB.prepare('UPDATE team_access_keys SET is_active = 0 WHERE member_id = ?').bind(memberId).run();
     } else {
       await env.DB.prepare(`INSERT INTO team_members
         (id, workspace_id, email, name, role, status, created_at, updated_at)
@@ -141,13 +138,8 @@ async function handleMembers(request: Request, env: Env): Promise<Response> {
         .bind(memberId, TEAM_WORKSPACE_ID, email, name, role, now, now).run();
     }
 
-    const inviteKey = createTeamAccessKey();
-    await env.DB.prepare(`INSERT INTO team_access_keys
-      (id, member_id, key_hash, is_active, created_at) VALUES (?, ?, ?, 1, ?)`)
-      .bind(crypto.randomUUID(), memberId, await hashTeamKey(inviteKey), now).run();
     await writeTeamLog(env.DB, actor.email, '添加团队成员', email, `${name} · ${role}`);
-    const inviteUrl = `${new URL(request.url).origin}/#team_key=${encodeURIComponent(inviteKey)}`;
-    return Response.json({ ok: true, members: await listTeamMembers(env.DB), inviteKey, inviteUrl });
+    return Response.json({ ok: true, members: await listTeamMembers(env.DB) });
   }
 
   if (request.method === 'PATCH') {

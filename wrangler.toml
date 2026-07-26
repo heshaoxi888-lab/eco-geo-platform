@@ -5,6 +5,8 @@ account_id = "26f762ef75957b4f280f303aaa91e689"
 
 [vars]
 ENVIRONMENT = "production"
+TEAM_DOMAIN = "https://parrotfly.cloudflareaccess.com"
+POLICY_AUD = "64a6dea063c57bb45685d4be809dfbf5dffa394b11aadced79b3f240c6aeb4c2"
 
 [[d1_databases]]
 binding = "DB"

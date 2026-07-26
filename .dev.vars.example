@@ -1,0 +1,4 @@
+API_SALT=replace-with-a-random-development-value
+TEAM_DOMAIN=https://parrotfly.cloudflareaccess.com
+POLICY_AUD=64a6dea063c57bb45685d4be809dfbf5dffa394b11aadced79b3f240c6aeb4c2
+DEV_USER_EMAIL=heshaoxi888@gmail.com

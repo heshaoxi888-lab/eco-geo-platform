@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS team_members (
 CREATE UNIQUE INDEX IF NOT EXISTS team_members_workspace_email_idx
   ON team_members(workspace_id, email);
 
--- 每位团队成员独立访问密钥；仅保存 SHA-256 哈希
+-- 旧成员应急访问密钥；日常身份由 Cloudflare Access 邮箱识别，仅保存 SHA-256 哈希
 CREATE TABLE IF NOT EXISTS team_access_keys (
   id TEXT PRIMARY KEY,
   member_id TEXT NOT NULL,

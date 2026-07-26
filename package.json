@@ -8,7 +8,8 @@
     "db:create": "wrangler d1 create eco-geo-db",
     "db:migrate": "wrangler d1 execute eco-geo-db --remote --file=schema.sql",
     "db:migrate:local": "wrangler d1 execute eco-geo-db --local --file=schema.sql",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "npm run typecheck && node --test tests/*.test.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260722.1",

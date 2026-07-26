@@ -1633,30 +1633,6 @@ function getDefaultSchedTime(plat){
 /* ========== Cloudflare D1 协作同步 ========== */
 let cloudSession = {ready:false,user:null,members:[],logs:[],version:0,workspace:null,error:'',canEdit:false,hasRemoteState:false};
 let collabState = {status:'offline',timer:null,pushTimer:null,lastRemoteVersion:0,localDirty:false};
-const TEAM_KEY_STORAGE = 'eco_team_access_key_v1';
-
-function getTeamAccessKey(){ return localStorage.getItem(TEAM_KEY_STORAGE)||''; }
-function applyTeamKeyFromHash(){
-  const match=location.hash.match(/(?:^#|&)team_key=([^&]+)/);
-  if(!match) return false;
-  try{ localStorage.setItem(TEAM_KEY_STORAGE,decodeURIComponent(match[1])); }catch{}
-  history.replaceState(null,'',location.pathname+location.search);
-  return true;
-}
-async function promptTeamAccess(){
-  const key=prompt('请输入团队访问密钥。每位成员使用自己的密钥：',getTeamAccessKey());
-  if(!key?.trim()) return;
-  localStorage.setItem(TEAM_KEY_STORAGE,key.trim());
-  cloudSession={ready:false,user:null,members:[],logs:[],version:0,workspace:null,error:'',canEdit:false,hasRemoteState:false};
-  const connected=await cloudBootstrap();
-  if(connected){ await loadGeoMonitoring(); startCollab(); }
-  render();
-}
-function clearTeamAccess(){
-  if(!confirm('确定退出团队空间并清除本机访问密钥？')) return;
-  localStorage.removeItem(TEAM_KEY_STORAGE);
-  location.reload();
-}
 
 function escHtml(value){
   return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1666,8 +1642,6 @@ function roleLabel(role){ return ({owner:'所有者',admin:'管理员',editor:'�
 async function cloudRequest(url, options={}){
   const headers = {...(options.headers||{})};
   if(options.body && !headers['Content-Type']) headers['Content-Type']='application/json';
-  const teamKey=getTeamAccessKey();
-  if(teamKey) headers['X-Team-Key']=teamKey;
   const response = await fetch(url,{credentials:'same-origin',...options,headers});
   const data = await response.json().catch(()=>({}));
   if(!response.ok){
@@ -1831,11 +1805,7 @@ async function addTeamMember(){
   try{
     const data=await cloudRequest('/api/members',{method:'POST',body:JSON.stringify({email,name,role})});
     cloudSession.members=data.members||[];
-    if(data.inviteUrl){
-      try{ await navigator.clipboard.writeText(data.inviteUrl); }catch{}
-      prompt('成员邀请链接（仅显示一次，已尝试复制到剪贴板）：',data.inviteUrl);
-    }
-    toast('成员已加入团队，请把邀请链接单独发给本人','ok');
+    toast('成员已加入团队，对方可直接使用该邮箱登录','ok');
     render();
   }catch(error){ toast(error.message,'err'); }
 }
@@ -1965,7 +1935,7 @@ function renderBanners(){
   if(!state.config.demoCleared){
     html += `<div class="demo-banner">📌 当前为演示数据，可浏览完整体验。<button class="btn-clear" onclick="clearDemo()">一键清空开始使用</button></div>`;
   }
-  if(cloudSession.error) html += `<div class="collab-banner err">⚠️ Cloudflare 团队空间连接失败：${escHtml(cloudSession.error)} <button class="btn-setup" onclick="promptTeamAccess()">输入/更换团队密钥</button></div>`;
+  if(cloudSession.error) html += `<div class="collab-banner err">⚠️ Cloudflare 团队空间连接失败：${escHtml(cloudSession.error)} <button class="btn-setup" onclick="location.reload()">重新连接</button> <button class="btn-setup" onclick="location.href='/cdn-cgi/access/logout'">切换登录邮箱</button></div>`;
   else if(cloudSession.ready && cloudSession.user?.role==='viewer') html += `<div class="collab-banner warn">👁️ 你当前是查看者，只能浏览数据。管理员可在「账号&协作」中调整权限。</div>`;
   else if(cloudSession.ready) html += `<div class="collab-banner ok">☁️ 已连接 Cloudflare D1 团队空间，数据会自动同步。<button class="btn-setup" onclick="switchTab('account')">管理团队 →</button></div>`;
   else html += `<div class="collab-banner">☁️ 正在连接 Cloudflare 团队空间…</div>`;
@@ -1973,7 +1943,7 @@ function renderBanners(){
 }
 
 function renderFooter(){
-  return `<div class="footer">🌿 ECO 团队工作流 <span class="v">v4.2 Cloudflare 协作版</span> · D1 数据库 · 成员独立密钥 · 角色权限</div>`;
+  return `<div class="footer">🌿 ECO 团队工作流 <span class="v">v4.3 Cloudflare Access 协作版</span> · D1 数据库 · 邮箱身份 · 角色权限</div>`;
 }
 
 
@@ -4869,7 +4839,7 @@ function renderAccountTab(){
   html += `<div class="collab-section">
     <h3>☁️ Cloudflare 团队空间</h3>
     <div class="collab-desc">
-      团队数据保存在 Cloudflare D1，由每位成员自己的访问密钥识别身份。系统支持所有者、管理员、编辑者和查看者四种权限；管理员添加成员后会生成一次性邀请链接。
+      团队数据保存在 Cloudflare D1，由 Cloudflare Access 登录邮箱自动识别身份。系统支持所有者、管理员、编辑者和查看者四种权限；管理员添加成员邮箱后，对方即可直接登录。
     </div>
     <div class="cloud-note">🔐 当前成员：<strong>${escHtml(cloudSession.user?.name||cloudSession.user?.email||'尚未连接')}</strong>${cloudSession.user?`（${roleLabel(cloudSession.user.role)}）`:''}。AI Token 仍只保存在当前浏览器，不会同步到团队数据库。</div>
     ${canManage?`<div class="collab-form" style="margin-top:12px">
@@ -4879,11 +4849,10 @@ function renderAccountTab(){
       <div class="field" style="align-self:end"><button class="btn btn-primary" onclick="addTeamMember()">＋ 添加成员</button></div>
     </div>`:''}
     <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-      <button class="btn btn-primary btn-sm" onclick="promptTeamAccess()">🔑 输入/更换团队密钥</button>
       <button class="btn btn-primary btn-sm" onclick="collabFetch()">🔄 立即同步</button>
       <button class="btn btn-ghost btn-sm" onclick="refreshTeamMembers()">👥 刷新成员</button>
       <button class="btn btn-ghost btn-sm" onclick="loadCloudLogs()">📝 查看云端日志</button>
-      <button class="btn btn-ghost btn-sm" onclick="clearTeamAccess()">退出团队空间</button>
+      <button class="btn btn-ghost btn-sm" onclick="location.href='/cdn-cgi/access/logout'">退出当前账号</button>
     </div>
     <div class="member-grid">
       ${(cloudSession.members||[]).map(member=>{
@@ -5118,7 +5087,7 @@ function importJSON(){
 
 /* ========== 初始化 ========== */
 async function init(){
-  applyTeamKeyFromHash();
+  try{ localStorage.removeItem('eco_team_access_key_v1'); }catch{}
   const loaded = lsLoad();
   if(!loaded){
     loadDemoData();
@@ -5146,7 +5115,7 @@ async function init(){
     guideOpen = true;
   }
   render();
-  // 使用成员独立密钥连接 Cloudflare D1 团队空间
+  // 使用 Cloudflare Access 登录邮箱连接 D1 团队空间
   const connected=await cloudBootstrap();
   await loadGeoMonitoring();
   setupDraftProxies();

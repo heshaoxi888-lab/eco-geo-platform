@@ -29,6 +29,100 @@ export const teamRoleRank: Record<TeamRole, number> = {
 };
 
 let collaborationSchemaReady: Promise<void> | null = null;
+type AccessJwk = JsonWebKey & { kid?: string };
+
+let accessKeysCache: { issuer: string; expiresAt: number; keys: AccessJwk[] } | null = null;
+
+type TeamIdentity = {
+  email: string;
+  source: 'cloudflare-access' | 'development';
+};
+
+function decodeJwtPart(value: string): Uint8Array {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=');
+  return Uint8Array.from(atob(normalized), char => char.charCodeAt(0));
+}
+
+async function getAccessKeys(issuer: string): Promise<AccessJwk[]> {
+  if (accessKeysCache?.issuer === issuer && accessKeysCache.expiresAt > Date.now()) {
+    return accessKeysCache.keys;
+  }
+  const response = await fetch(`${issuer}/cdn-cgi/access/certs`);
+  if (!response.ok) throw new TeamApiError(503, '暂时无法获取 Cloudflare Access 公钥');
+  const body = await response.json() as { keys?: AccessJwk[] };
+  if (!Array.isArray(body.keys) || body.keys.length === 0) {
+    throw new TeamApiError(503, 'Cloudflare Access 公钥响应无效');
+  }
+  accessKeysCache = { issuer, expiresAt: Date.now() + 5 * 60_000, keys: body.keys };
+  return body.keys;
+}
+
+async function verifyAccessJwt(token: string, issuer: string, audience: string): Promise<Record<string, unknown>> {
+  const parts = token.split('.');
+  if (parts.length !== 3) throw new TeamApiError(401, 'Cloudflare Access 登录令牌格式无效');
+
+  let header: { kid?: string; alg?: string };
+  let payload: Record<string, unknown>;
+  try {
+    header = JSON.parse(new TextDecoder().decode(decodeJwtPart(parts[0])));
+    payload = JSON.parse(new TextDecoder().decode(decodeJwtPart(parts[1])));
+  } catch {
+    throw new TeamApiError(401, 'Cloudflare Access 登录令牌格式无效');
+  }
+
+  if (!header.kid || header.alg !== 'RS256') {
+    throw new TeamApiError(401, 'Cloudflare Access 登录令牌算法无效');
+  }
+  const jwk = (await getAccessKeys(issuer)).find(key => key.kid === header.kid);
+  if (!jwk) throw new TeamApiError(401, 'Cloudflare Access 登录公钥不匹配');
+
+  const key = await crypto.subtle.importKey(
+    'jwk',
+    jwk,
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+    false,
+    ['verify']
+  );
+  const signatureOk = await crypto.subtle.verify(
+    'RSASSA-PKCS1-v1_5',
+    key,
+    decodeJwtPart(parts[2]),
+    new TextEncoder().encode(`${parts[0]}.${parts[1]}`)
+  );
+  const now = Math.floor(Date.now() / 1000);
+  const audiences = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+  if (!signatureOk || payload.iss !== issuer || !audiences.includes(audience)) {
+    throw new TeamApiError(401, 'Cloudflare Access 登录令牌验证失败');
+  }
+  if (typeof payload.exp !== 'number' || payload.exp <= now) {
+    throw new TeamApiError(401, 'Cloudflare Access 登录已过期');
+  }
+  if (typeof payload.nbf === 'number' && payload.nbf > now) {
+    throw new TeamApiError(401, 'Cloudflare Access 登录令牌尚未生效');
+  }
+  return payload;
+}
+
+async function getTeamIdentity(request: Request, env: Env): Promise<TeamIdentity | null> {
+  const token = request.headers.get('Cf-Access-Jwt-Assertion');
+  if (token) {
+    if (!env.TEAM_DOMAIN || !env.POLICY_AUD) {
+      throw new TeamApiError(503, 'Cloudflare Access 身份校验尚未配置');
+    }
+    const issuer = env.TEAM_DOMAIN.replace(/\/$/, '');
+    const payload = await verifyAccessJwt(token, issuer, env.POLICY_AUD);
+    if (typeof payload.email !== 'string' || !payload.email.includes('@')) {
+      throw new TeamApiError(401, 'Cloudflare Access 登录信息缺少邮箱');
+    }
+    return { email: normalizeTeamEmail(payload.email), source: 'cloudflare-access' };
+  }
+
+  const host = new URL(request.url).hostname;
+  if ((host === 'localhost' || host === '127.0.0.1') && env.DEV_USER_EMAIL) {
+    return { email: normalizeTeamEmail(env.DEV_USER_EMAIL), source: 'development' };
+  }
+  return null;
+}
 
 export async function ensureCollaborationSchema(db: D1Database): Promise<void> {
   if (!collaborationSchemaReady) {
@@ -95,8 +189,28 @@ export async function requireTeamMember(
   minimum: TeamRole = 'viewer'
 ): Promise<TeamMember> {
   await ensureCollaborationSchema(env.DB);
+  const identity = await getTeamIdentity(request, env);
+  if (identity) {
+    const member = await env.DB.prepare(`SELECT * FROM team_members
+      WHERE workspace_id = ? AND email = ?`)
+      .bind(TEAM_WORKSPACE_ID, identity.email)
+      .first<TeamMember>();
+
+    if (!member || member.status !== 'active') {
+      throw new TeamApiError(403, '你的登录邮箱尚未加入团队或已被停用');
+    }
+    if (teamRoleRank[member.role] < teamRoleRank[minimum]) {
+      throw new TeamApiError(403, '当前账号没有执行此操作的权限');
+    }
+    const now = Date.now();
+    await env.DB.prepare('UPDATE team_members SET last_seen_at = ? WHERE id = ?').bind(now, member.id).run();
+    member.last_seen_at = now;
+    return member;
+  }
+
+  // 保留旧成员密钥作为 workers.dev / 故障恢复时的应急入口。
   const rawKey = request.headers.get('X-Team-Key')?.trim();
-  if (!rawKey) throw new TeamApiError(401, '请输入团队访问密钥');
+  if (!rawKey) throw new TeamApiError(401, '请先通过 Cloudflare Access 登录');
 
   const keyHash = await hashTeamKey(rawKey);
   const member = await env.DB.prepare(`SELECT m.* FROM team_access_keys k

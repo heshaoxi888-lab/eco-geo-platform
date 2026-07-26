@@ -8,7 +8,7 @@
 - **数据库**: Cloudflare D1 (SQLite)
 - **前端**: 完整 ECO 工作流单页看板
 - **数据采集**: 扣子 Bot 定时工单 → Workers API
-- **多人协作**: D1 团队状态、角色权限、成员独立访问密钥、操作日志
+- **多人协作**: Cloudflare Access 邮箱登录、D1 团队状态、角色权限、操作日志
 
 ## 架构
 
@@ -22,11 +22,14 @@
                                    └─ D1 写入
 
 浏览器看板
+  ├─ Cloudflare Access 邮箱认证
   ├─ 工作流状态 /api/state → Workers → D1
   └─ GEO 监测 /api/v1/monitoring → Workers → D1
 ```
 
-正式生产地址：<https://eco-geo-workers.heshaoxi888.workers.dev/>
+正式生产地址：<https://ecogeo.ccwu.cc/>
+
+`workers.dev` 地址保留用于健康检查、扣子 API 和应急团队密钥访问；团队成员日常只使用自定义域名。
 
 GitHub 是唯一源码与版本协作入口；Cloudflare Worker + D1 是唯一生产运行环境。GitHub Pages/Deployments 不作为本项目的正式发布地址。
 
@@ -123,13 +126,14 @@ X-API-Key: your-api-key-here
 - `write`: 查询 + 写入监测数据
 - `admin`: 全部权限（含品牌管理）
 
-多人协作接口（`/api/bootstrap`、`/api/state`、`/api/members`、`/api/logs`）使用每位成员自己的团队密钥：
+多人协作接口（`/api/bootstrap`、`/api/state`、`/api/members`、`/api/logs`）验证 Cloudflare Access JWT，并按登录邮箱读取 D1 成员角色。生产环境需要在 `wrangler.toml` 配置：
 
 ```
-X-Team-Key: eco_team_...
+TEAM_DOMAIN=https://parrotfly.cloudflareaccess.com
+POLICY_AUD=Cloudflare Access Application Audience
 ```
 
-成员由所有者或管理员在看板的“账号&协作”页面添加；邀请链接只显示一次，D1 仅保存密钥的 SHA-256 哈希。
+成员由所有者或管理员在看板的“账号&协作”页面添加。成员使用被添加的邮箱通过 Cloudflare Access 验证码登录，无需团队密钥。旧成员密钥仅保留为 `workers.dev` 故障恢复入口，D1 仍只保存其 SHA-256 哈希。
 
 ## 评分标准
 
