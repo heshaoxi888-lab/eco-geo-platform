@@ -1,5 +1,8 @@
 node_modules/
 .wrangler/
+.dev-server.*.log
+qa-*.png
+design-qa.md
 .wrangler-dry-run/
 .wrangler-dry-run-*/
 .dev.vars

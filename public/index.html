@@ -223,6 +223,33 @@ textarea{resize:vertical;min-height:60px;line-height:1.6}
 .ai-loading .steps{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--c-muted)}
 .ai-loading .step.done{color:var(--c-primary);text-decoration:line-through}
 .ai-loading .step.active{color:var(--c-deep);font-weight:600}
+.generation-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;text-align:left}
+.generation-head strong{color:var(--c-deep);font-size:15px}
+.generation-progress{height:8px;background:var(--c-light);border-radius:999px;overflow:hidden;margin:12px 0 16px}
+.generation-progress>span{display:block;height:100%;background:var(--c-primary);transition:width .25s ease}
+.generation-platforms{display:flex;flex-direction:column;gap:7px;text-align:left;margin-top:12px}
+.generation-platform{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;border:1px solid var(--c-border);border-radius:7px;background:#fff;font-size:12px}
+.generation-platform .state{font-weight:600;color:var(--c-muted)}
+.generation-platform.done .state{color:var(--c-primary)}
+.generation-platform.active{border-color:var(--c-mid);background:var(--c-light)}
+.generation-platform.active .state{color:var(--c-deep)}
+.generation-stop-summary{padding:18px;border:1px solid #F4A261;border-radius:10px;background:#FFF8ED;text-align:left}
+.generation-stop-summary strong{display:block;color:#92400E;margin-bottom:6px;font-size:15px}
+.generation-stop-summary p{margin:4px 0;color:var(--c-text);font-size:13px;line-height:1.6}
+.generation-stop-summary .btn{margin-top:12px}
+.generation-state{font-size:11px;font-weight:600;white-space:nowrap}
+.generation-state.paused{color:#92400E}
+.kcard.generation-paused{border-left-color:#F4A261!important;background:#FFFCF5}
+.kcard.terminated{opacity:.76;background:#F8FAFC}
+.drawer-header .d-action{flex-shrink:0;min-height:32px;padding:0 10px;font-size:12px}
+.action-dialog-mask{position:fixed;inset:0;z-index:1200;background:rgba(27,67,50,.48);display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(3px)}
+.action-dialog{width:min(500px,94vw);background:#fff;border-radius:12px;box-shadow:0 18px 55px rgba(0,0,0,.24);padding:22px;animation:slideDown .2s ease;text-align:left}
+.action-dialog h3{margin:0 0 10px;color:var(--c-deep);font-size:17px}
+.action-dialog p{margin:6px 0;color:var(--c-text);font-size:13px;line-height:1.7}
+.action-dialog .notice{padding:10px 12px;margin:12px 0;background:#FFF8ED;border:1px solid #F4A261;border-radius:8px;color:#92400E;font-size:12px;line-height:1.6}
+.action-dialog label{display:block;margin:14px 0 5px;color:var(--c-deep);font-size:12px;font-weight:600}
+.action-dialog textarea{width:100%;min-height:76px;padding:9px 10px;border:1px solid var(--c-border);border-radius:7px;font:inherit;resize:vertical}
+.action-dialog .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;padding-top:14px;border-top:1px solid var(--c-light)}
 
 /* 裂变子任务 */
 .split-list{display:flex;flex-direction:column;gap:6px;margin:8px 0}
@@ -601,7 +628,8 @@ const COLS = [
   {key:'media', name:'📸 待拍摄/修图', color:'#E9C46A'},
   {key:'publish', name:'📅 待发布', color:'#9B59B6'},
   {key:'data', name:'📊 已发布待数据', color:'#3B82F6'},
-  {key:'done', name:'🏁 已完成', color:'#2D6A4F'}
+  {key:'done', name:'🏁 已完成', color:'#2D6A4F'},
+  {key:'terminated', name:'已终止', color:'#94A3B8'}
 ];
 const PLATFORMS = [
   {key:'xhs', name:'小红书', color:'#FF2442', tone:'种草图文 600-800字 emoji多 强互动', defaultOwner:'小齐', defaultHour:20, defaultPubUrl:'https://creator.xiaohongshu.com/publish/publish', pubUrlHint:'小红书创作者中心URL'},
@@ -799,7 +827,7 @@ function aiConfigured(){
   return !!(AI_PROVIDERS[a.provider]&&AI_PROVIDERS[a.provider].configured&&AI_PROVIDERS[a.provider].configured(a));
 }
 
-async function callAI(systemPrompt, userPrompt){
+async function callAI(systemPrompt, userPrompt, signal){
   const a = state.config.ai||{};
   const provider = AI_PROVIDERS[a.provider]||AI_PROVIDERS.coze;
   if(!provider.configured(a)){
@@ -813,8 +841,9 @@ async function callAI(systemPrompt, userPrompt){
   ]);
   let resp;
   try{
-    resp = await fetch(req.url, req.opts);
+    resp = await fetch(req.url, signal ? {...req.opts, signal} : req.opts);
   }catch(err){
+    if(err&&err.name==='AbortError') throw err;
     if(isSandboxed&&isSandboxed()){
       throw new Error('在预览iframe中无法联网请求AI。请点右上角📥下载HTML到本地双击打开，或访问部署后的在线网页。');
     }
@@ -1870,6 +1899,8 @@ let currentTab = 'topics';
 let activeTaskId = null;  // v3.9: single drawer task (replaces expandedCards map)
 let drawerOpen = false;   // v3.9.1: whether drawer is currently shown (persists across re-renders)
 let activePlatTab = {};  // taskId -> platKey
+const generationRuntime = new Map(); // taskId -> {controller, stopped}
+let actionDialog = null; // {type, taskId}
 let showLaunch = null;   // 立项的选题
 let aiTopicDaily = null; // 今日AI建议缓存
 let aiDailyDate = null;
@@ -1897,9 +1928,47 @@ function refreshAIDaily(){ aiDailyDate=null; render(); toast('已换一批新选
 function render(){
   const app = document.getElementById('app');
   app.innerHTML = renderTopbar() + renderBanners() + `<div class="main">` +
-    renderTabContent() + `</div>` + renderFooter() + renderHelpDrawer() + renderGuide();
+    renderTabContent() + `</div>` + renderFooter() + renderHelpDrawer() + renderGuide() + renderActionDialog();
   bindEvents();
 }
+
+function renderActionDialog(){
+  if(!actionDialog) return '';
+  const task=state.tasks.find(t=>t.id===actionDialog.taskId);
+  if(!task){actionDialog=null;return '';}
+  if(actionDialog.type==='stop-generation'){
+    if(task.status!=='ai_gen'||task.genState==='stopped'){actionDialog=null;return '';}
+    const completed=task.plats.filter(p=>task.drafts&&task.drafts[p]).length;
+    return `<div class="action-dialog-mask" onclick="closeActionDialog()">
+      <section class="action-dialog" role="dialog" aria-modal="true" aria-labelledby="actionDialogTitle" onclick="event.stopPropagation()">
+        <h3 id="actionDialogTitle">停止生成母稿？</h3>
+        <p>当前已完成 ${completed}/${task.plats.length} 个平台。</p>
+        <div class="notice">停止后将不再请求剩余平台。已生成内容会保留，可稍后继续。</div>
+        <div class="actions">
+          <button class="btn btn-ghost" onclick="closeActionDialog()">继续生成</button>
+          <button class="btn btn-danger" id="actionDialogPrimary" onclick="stopAIGeneration('${task.id}')">停止并保留已生成内容</button>
+        </div>
+      </section>
+    </div>`;
+  }
+  return `<div class="action-dialog-mask" onclick="closeActionDialog()">
+    <section class="action-dialog" role="dialog" aria-modal="true" aria-labelledby="actionDialogTitle" onclick="event.stopPropagation()">
+      <h3 id="actionDialogTitle">终止立项？</h3>
+      <p>任务会移入“已终止”，不再计入进行中项目。</p>
+      <div class="notice">现有母稿、任务数据和操作记录都会保留，之后可以恢复立项。</div>
+      <label for="terminateReason">终止原因（选填）</label>
+      <textarea id="terminateReason" placeholder="例如：选题方向调整、排期取消"></textarea>
+      <div class="actions">
+        <button class="btn btn-ghost" onclick="closeActionDialog()">取消</button>
+        <button class="btn btn-danger" id="actionDialogPrimary" onclick="terminateTask('${task.id}')">终止并保留记录</button>
+      </div>
+    </section>
+  </div>`;
+}
+
+function closeActionDialog(){actionDialog=null;render();}
+function requestStopAIGeneration(taskId){actionDialog={type:'stop-generation',taskId};render();setTimeout(()=>document.getElementById('actionDialogPrimary')?.focus(),0);}
+function requestTerminateTask(taskId){actionDialog={type:'terminate-task',taskId};render();setTimeout(()=>document.getElementById('terminateReason')?.focus(),0);}
 
 function renderTopbar(){
   const w = weekLabel(state.config.currentWeek);
@@ -2302,6 +2371,7 @@ function confirmLaunch(){
     keywords: [...d.keywords],
     remark: d.remark,
     status: 'ai_gen',
+    genState: 'running',
     genProgress: 0,
     genStep: 0,
     drafts: {},
@@ -2341,16 +2411,22 @@ function confirmLaunch(){
   schedulePush();
   render();
   setTimeout(()=>openTaskDrawer(task.id), 400);
-  toast('立项成功！AI正在生成母稿…','ok');
+  toast(`立项已创建，正在生成 ${task.plats.length} 个平台母稿`,'ok');
   // 触发AI生成动画
   setTimeout(()=>runAIGeneration(task.id), 300);
 }
 
 async function runAIGeneration(taskId){
   const task = state.tasks.find(t=>t.id===taskId);
-  if(!task) return;
-  task.genStep = 0;
-  task.genMsg = '准备生成…';
+  if(!task||task.status!=='ai_gen'||task.genState==='stopped') return;
+  const currentRuntime = generationRuntime.get(taskId);
+  if(currentRuntime&&!currentRuntime.stopped) return;
+  const runtime = {controller:null,stopped:false};
+  generationRuntime.set(taskId,runtime);
+  task.genState = 'running';
+  task.genStopRequested = false;
+  task.genStep = Object.keys(task.drafts||{}).length;
+  task.genMsg = task.genStep ? `继续生成，已完成 ${task.genStep}/${task.plats.length}` : '准备生成…';
   task.status='ai_gen';
   task.drafts = task.drafts||{};
   render();
@@ -2363,9 +2439,13 @@ async function runAIGeneration(taskId){
 
   for(let pi=0; pi<task.plats.length; pi++){
     const p = task.plats[pi];
+    if(task.drafts[p]) continue;
+    if(runtime.stopped||task.genStopRequested) break;
     const pName = (PLATFORMS.find(x=>x.key===p)||{name:p}).name;
-    task.genStep = pi+1;
-    task.genMsg = `${useLLM?'🤖 请求':'📝 模板生成'} ${pName} 母稿 (${pi+1}/${task.plats.length})…`;
+    const completedBefore = task.plats.filter(key=>task.drafts[key]).length;
+    task.genStep = completedBefore;
+    task.genPlatform = p;
+    task.genMsg = `${useLLM?'请求':'模板生成'} ${pName} 母稿 (${completedBefore+1}/${task.plats.length})…`;
     schedulePush();render();
     try{
       let draft;
@@ -2380,7 +2460,9 @@ async function runAIGeneration(taskId){
           sysPrompt = MIN_SYS_PROMPT + '\n\n' + (PLATFORM_STYLE[p]||PLATFORM_STYLE.xhs);
           userPrompt = `请为ECO德国有机洗护品牌创作1篇${pName}内容。\n选题：${task.title}\n类型：${topicType}\nSKU：${sku}\n关键词：${keywords||''}\n备注：${task.remark||''}\n\n输出JSON。`;
         }
-        const raw = await callAI(sysPrompt, userPrompt);
+        runtime.controller = new AbortController();
+        const raw = await callAI(sysPrompt, userPrompt, runtime.controller.signal);
+        if(runtime.stopped||task.genStopRequested||generationRuntime.get(taskId)!==runtime) break;
         draft = parseDraftResponse(raw, p);
         if(!draft) throw new Error('AI返回解析失败');
       }else{
@@ -2391,6 +2473,7 @@ async function runAIGeneration(taskId){
       }
       task.drafts[p] = draft;
     }catch(err){
+      if(runtime.stopped||task.genStopRequested||(err&&err.name==='AbortError')) break;
       console.warn(`[${p}]生成失败:`,err);
       const topicObj = {title:task.title,type:topicType,keywords:task.keywords||[]};
       const fb = generateDraft(topicObj, sku, p);
@@ -2399,13 +2482,32 @@ async function runAIGeneration(taskId){
       task.drafts[p] = fb;
       toast(`⚠️ ${pName}生成失败，用模板兜底：${(err.message||'').slice(0,50)}`,'warn',5000);
     }
+    if(runtime.stopped||task.genStopRequested||generationRuntime.get(taskId)!==runtime) break;
     schedulePush();
     render();
   }
 
+  if(generationRuntime.get(taskId)!==runtime) return;
+  runtime.controller = null;
+  generationRuntime.delete(taskId);
+  const completed = task.plats.filter(p=>task.drafts[p]).length;
+  if(runtime.stopped||task.genStopRequested){
+    task.genState='stopped';
+    task.genStep=completed;
+    task.genProgress=task.plats.length?completed/task.plats.length:0;
+    task.genMsg=`已停止，完成 ${completed}/${task.plats.length}`;
+    delete task.genPlatform;
+    schedulePush();
+    render();
+    return;
+  }
+
   task.status='draft';
+  task.genState='done';
   task.genStep = task.plats.length+1;
+  task.genProgress = 1;
   task.genMsg = '生成完成';
+  delete task.genPlatform;
   activePlatTab[taskId] = task.plats[0];
   const hasReal = Object.values(task.drafts).some(d=>!d._offline);
   addLog('叁衍', hasReal
@@ -2414,6 +2516,79 @@ async function runAIGeneration(taskId){
   schedulePush();
   render();
   toast(hasReal?'🤖 AI母稿生成完成，请微调':'📝 已用离线模板（去「账号&协作」配扣子Bot启用真AI）', hasReal?'ok':'warn',6000);
+}
+
+function stopAIGeneration(taskId){
+  const task=state.tasks.find(t=>t.id===taskId);
+  if(!task||task.status!=='ai_gen'||task.genState==='stopped'){actionDialog=null;render();return;}
+  actionDialog=null;
+  const runtime=generationRuntime.get(taskId);
+  if(runtime){
+    runtime.stopped=true;
+    if(runtime.controller) runtime.controller.abort();
+  }
+  const completed=task.plats.filter(p=>task.drafts&&task.drafts[p]).length;
+  task.genStopRequested=true;
+  task.genState='stopped';
+  task.genStep=completed;
+  task.genProgress=task.plats.length?completed/task.plats.length:0;
+  task.genMsg=`已停止，完成 ${completed}/${task.plats.length}`;
+  delete task.genPlatform;
+  task.lastBy=state.config.collab.nickname||task.owner;
+  task.lastTime=Date.now();
+  addLog(task.lastBy,`停止了「${task.title}」的AI母稿生成，已完成${completed}/${task.plats.length}`);
+  schedulePush();render();
+  toast(`已停止生成，完成 ${completed}/${task.plats.length}，已生成内容已保留`,'warn',5000);
+}
+
+function resumeAIGeneration(taskId){
+  const task=state.tasks.find(t=>t.id===taskId);
+  if(!task||task.status!=='ai_gen'||task.genState!=='stopped') return;
+  const completed=task.plats.filter(p=>task.drafts&&task.drafts[p]).length;
+  if(completed>=task.plats.length){
+    task.status='draft';task.genState='done';task.genProgress=1;task.genMsg='生成完成';
+    schedulePush();render();return;
+  }
+  task.genStopRequested=false;
+  task.genState='running';
+  task.genMsg=`继续生成，已完成 ${completed}/${task.plats.length}`;
+  schedulePush();render();
+  setTimeout(()=>runAIGeneration(taskId),100);
+  toast(`继续生成剩余 ${task.plats.length-completed} 个平台母稿`,'ok');
+}
+
+function terminateTask(taskId){
+  const task=state.tasks.find(t=>t.id===taskId);
+  if(!task||task.status==='terminated') return;
+  const reason=document.getElementById('terminateReason')?.value||'';
+  actionDialog=null;
+  const runtime=generationRuntime.get(taskId);
+  if(runtime){runtime.stopped=true;if(runtime.controller) runtime.controller.abort();generationRuntime.delete(taskId);}
+  task.previousStatus=task.status;
+  if(task.status==='ai_gen'){
+    task.genState='stopped';task.genStopRequested=true;
+    task.genStep=task.plats.filter(p=>task.drafts&&task.drafts[p]).length;
+    task.genMsg=`已停止，完成 ${task.genStep}/${task.plats.length}`;
+    delete task.genPlatform;
+  }
+  task.status='terminated';
+  task.terminatedReason=reason.trim();
+  task.terminatedAt=Date.now();
+  task.terminatedBy=state.config.collab.nickname||task.owner;
+  task.lastBy=task.terminatedBy;task.lastTime=task.terminatedAt;
+  addLog(task.terminatedBy,`终止了立项「${task.title}」${task.terminatedReason?'：'+task.terminatedReason:''}`);
+  schedulePush();render();toast('立项已终止，内容和记录已保留','warn');
+}
+
+function restoreTask(taskId){
+  const task=state.tasks.find(t=>t.id===taskId);
+  if(!task||task.status!=='terminated') return;
+  task.status=task.previousStatus||((task.drafts&&Object.keys(task.drafts).length)?'draft':'ai_gen');
+  if(task.status==='ai_gen'){task.genState='stopped';task.genStopRequested=true;}
+  delete task.previousStatus;delete task.terminatedAt;delete task.terminatedBy;delete task.terminatedReason;
+  task.lastBy=state.config.collab.nickname||task.owner;task.lastTime=Date.now();
+  addLog(task.lastBy,`恢复了立项「${task.title}」`);
+  schedulePush();render();toast('立项已恢复','ok');
 }
 
 
@@ -2428,16 +2603,16 @@ function renderKanbanTab(){
     </div>
   </div>`;
   // 全局进度条
-  const counts = COLS.map(c=>state.tasks.filter(t=>t.status===c.key).length);
+  const progressCols = COLS.filter(c=>c.key!=='terminated');
+  const counts = progressCols.map(c=>state.tasks.filter(t=>t.status===c.key).length);
   const total = counts.reduce((a,b)=>a+b,0) || 1;
-  const colors = COLS.map(c=>c.color);
   html += `<div class="progress-bar-wrap">
-    <div class="label"><span>全局进度（共${state.tasks.length}个进行中任务）</span><span>点击各段筛选</span></div>
+    <div class="label"><span>全局进度（共${counts.reduce((a,b)=>a+b,0)}个进行中任务）</span><span>点击各段筛选</span></div>
     <div class="progress-stacked">
-      ${COLS.map((c,i)=>`<div class="progress-seg" style="width:${counts[i]/total*100}%;background:${c.color}" title="${c.name}: ${counts[i]}">${counts[i]>0?counts[i]:''}</div>`).join('')}
+      ${progressCols.map((c,i)=>`<div class="progress-seg" style="width:${counts[i]/total*100}%;background:${c.color}" title="${c.name}: ${counts[i]}">${counts[i]>0?counts[i]:''}</div>`).join('')}
     </div>
   </div>`;
-  // 9列
+  // 工作流列（含已终止归档列）
   html += `<div class="kanban-board">`;
   COLS.forEach(col=>{
     const tasks = state.tasks.filter(t=>t.status===col.key);
@@ -2459,8 +2634,8 @@ function renderKanbanTab(){
     const at = state.tasks.find(x=>x.id===activeTaskId);
     if(at){
       const aCol = COLS.find(c=>c.key===at.status);
-      const stIco = aCol?aCol.icon:'';
-      const stName = aCol?aCol.name:'';
+      const stIco = aCol&&aCol.icon?aCol.icon:'';
+      const stName = at.status==='ai_gen'&&at.genState==='stopped'?'已停止':(aCol?aCol.name:'');
       const showCls = drawerOpen?'show':'';
       html += `<div class="drawer-overlay ${showCls}" id="drawerOverlay" onclick="closeTaskDrawer()"></div>`;
       html += `<aside class="task-drawer ${showCls}" id="taskDrawer" onclick="event.stopPropagation()">
@@ -2468,6 +2643,9 @@ function renderKanbanTab(){
           <span class="d-status">${stIco}</span>
           <span class="d-title" title="${(at.title||'').replace(/"/g,'&quot;')}">${at.title||''}</span>
           <span style="font-size:11px;color:var(--c-muted);background:var(--c-light);padding:3px 10px;border-radius:10px;flex-shrink:0">${stName}</span>
+          ${at.status==='terminated'
+            ?`<button class="btn btn-primary d-action" onclick="restoreTask('${at.id}')">恢复立项</button>`
+            :`<button class="btn btn-ghost d-action" onclick="requestTerminateTask('${at.id}')">终止立项</button>`}
           <button class="d-close" onclick="closeTaskDrawer()" title="关闭 (Esc)">✕</button>
         </div>
         <div class="drawer-body">
@@ -2493,13 +2671,19 @@ function renderKCard(t, col){
   const ownerCh = t.owner?t.owner[0]:'?';
   const tags = (t.keywords||[]).slice(0,3).map(k=>`<span class="tag kw">${k}</span>`).join('');
   const isDemo = t.title.includes('【演示】');
-  const isGen = t.status==='ai_gen';
+  const isGen = t.status==='ai_gen'&&t.genState!=='stopped';
+  const isPaused = t.status==='ai_gen'&&t.genState==='stopped';
   let statusIco = '';
   if(isGen) statusIco='<span class="status-icon">⏳</span>';
+  else if(isPaused){
+    const completed=t.plats.filter(p=>t.drafts&&t.drafts[p]).length;
+    statusIco=`<span class="generation-state paused">已停止 ${completed}/${t.plats.length}</span>`;
+  }
   else if(t.status==='review') statusIco='👁️';
   else if(t.status==='publish') statusIco='🕐';
   else if(t.status==='data' && t.data) statusIco='📊';
   else if(t.status==='done') statusIco='✅';
+  else if(t.status==='terminated') statusIco='<span class="generation-state">已终止</span>';
   else if(t.status==='compliance'){
     const c=t.compliance; const all=c.banned&&c.sensitive&&c.tagOpt&&c.platRule&&c.medClaim;
     statusIco = all?'✅':'⚠️';
@@ -2518,7 +2702,7 @@ function renderKCard(t, col){
   }
   // v3.9: cards always compact; details open in right drawer
   const isActive = activeTaskId===t.id;
-  return `<div class="kcard ${isDemo?'demo':''} ${isGen?'generating':''} ${isActive?'active-card':''}" style="border-left-color:${col.color}" onclick="openTaskDrawer('${t.id}')">
+  return `<div class="kcard ${isDemo?'demo':''} ${isGen?'generating':''} ${isPaused?'generation-paused':''} ${t.status==='terminated'?'terminated':''} ${isActive?'active-card':''}" style="border-left-color:${col.color}" onclick="openTaskDrawer('${t.id}')">
     <div class="kcard-title">${isDemo?'<span class="demo-tag">演示</span>':''}${t.title}</div>
     <div class="kcard-meta">${platDots}<span class="avatar" style="background:${ownerClr}">${ownerCh}</span></div>
     <div class="kcard-tags">${tags}</div>
@@ -2561,7 +2745,7 @@ function closeTaskDrawer(){
   drawerOpen = false;
   setTimeout(()=>{ activeTaskId=null; render(); }, 280);
 }
-document.addEventListener('keydown',(e)=>{ if(e.key==='Escape' && activeTaskId){ closeTaskDrawer(); } });
+document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){if(actionDialog) closeActionDialog(); else if(activeTaskId) closeTaskDrawer();} });
 
 function renderCardExpand(t){
   switch(t.status){
@@ -2574,6 +2758,7 @@ function renderCardExpand(t){
     case 'publish': return renderExpandPublish(t);
     case 'data': return renderExpandData(t);
     case 'done': return renderExpandDone(t);
+    case 'terminated': return renderExpandTerminated(t);
     default: return '';
   }
 }
@@ -2581,17 +2766,45 @@ function renderCardExpand(t){
 function renderExpandAI(t){
   const genMsg = t.genMsg||'';
   const isTemplate = genMsg.includes('模板生成');
-  const providerName = (state.config.ai&&AI_PROVIDERS[state.config.ai.provider])?AI_PROVIDERS[state.config.ai.provider].name:'AI';
-  const steps = isTemplate?['使用离线模板生成…']:['连接 '+providerName+'…','匹配平台调性…','生成标题候选…','撰写正文内容…','生成标签&CTA…','AI母稿生成完成！'];
-  const cur = isTemplate?0:(t.genStep||0);
-  return `<div class="ai-loading">
-    <div class="spin-orb"></div>
-    <div style="font-weight:600;margin-bottom:10px;color:var(--c-deep)">${isTemplate?'📝 使用离线模板生成':'🤖 AI正在生成母稿'}</div>
-    <div class="steps">
-      ${steps.map((s,i)=>`<div class="step ${i<cur?'done':i===cur?'active':''}">${i<cur?'✓':i===cur?'●':'○'} ${s}</div>`).join('')}
-    </div>
-    ${genMsg&&!isTemplate?`<div style="margin-top:10px;font-size:13px;color:var(--c-accent);font-weight:500">${genMsg}</div>`:''}
-    <div style="margin-top:14px;font-size:12px;color:var(--c-muted)">将为 ${t.plats.map(p=>PLATFORMS.find(x=>x.key===p).name).join('、')} 各生成独立母稿</div>
+  const completed=t.plats.filter(p=>t.drafts&&t.drafts[p]).length;
+  const total=t.plats.length||1;
+  const percent=Math.round(completed/total*100);
+  const isStopped=t.genState==='stopped';
+  const platformRows=t.plats.map(p=>{
+    const pl=PLATFORMS.find(x=>x.key===p)||{name:p};
+    const done=!!(t.drafts&&t.drafts[p]);
+    const active=!done&&!isStopped&&t.genPlatform===p;
+    return `<div class="generation-platform ${done?'done':active?'active':''}"><span>${pl.name}</span><span class="state">${done?'已完成':active?'生成中':'待生成'}</span></div>`;
+  }).join('');
+  if(isStopped){
+    return `<div class="ai-loading" role="status" aria-live="polite">
+      <div class="generation-stop-summary">
+        <strong>生成已停止</strong>
+        <p>已完成 ${completed}/${t.plats.length} 个平台母稿，已经生成的内容已保留。</p>
+        <p>继续后只会请求剩余平台，不会重复生成已完成内容。</p>
+        <button class="btn btn-primary" onclick="resumeAIGeneration('${t.id}')">继续生成剩余 ${t.plats.length-completed} 个</button>
+      </div>
+      <div class="generation-progress" role="progressbar" aria-label="母稿生成进度" aria-valuemin="0" aria-valuemax="${t.plats.length}" aria-valuenow="${completed}"><span style="width:${percent}%"></span></div>
+      <div class="generation-platforms">${platformRows}</div>
+    </div>`;
+  }
+  return `<div class="ai-loading" role="status" aria-live="polite">
+    <div class="generation-head"><strong>${isTemplate?'使用离线模板生成':'AI正在生成母稿'}</strong><button class="btn btn-ghost btn-sm" onclick="requestStopAIGeneration('${t.id}')">停止生成</button></div>
+    <div class="spin-orb" aria-hidden="true"></div>
+    <div style="font-size:13px;color:var(--c-accent);font-weight:500">${genMsg||'准备生成…'}</div>
+    <div class="generation-progress" role="progressbar" aria-label="母稿生成进度" aria-valuemin="0" aria-valuemax="${t.plats.length}" aria-valuenow="${completed}"><span style="width:${percent}%"></span></div>
+    <div class="generation-platforms">${platformRows}</div>
+    <div style="margin-top:14px;font-size:12px;color:var(--c-muted)">关闭此面板不会停止任务，生成完成后仍会保留结果。</div>
+  </div>`;
+}
+
+function renderExpandTerminated(t){
+  return `<div class="generation-stop-summary" role="status">
+    <strong>该立项已终止</strong>
+    <p>终止时间：${t.terminatedAt?fmtTime(t.terminatedAt):'-'} · 操作人：${t.terminatedBy||t.lastBy||'-'}</p>
+    ${t.terminatedReason?`<p>原因：${t.terminatedReason.replace(/</g,'&lt;')}</p>`:''}
+    <p>现有母稿、任务数据和操作记录均已保留。</p>
+    <button class="btn btn-primary" onclick="restoreTask('${t.id}')">恢复立项</button>
   </div>`;
 }
 
@@ -2665,6 +2878,8 @@ function regenerateDraft(taskId){
   if(!t) return;
   if(!confirm('确定退回AI重新生成？现有微调内容将丢失')) return;
   t.status='ai_gen';
+  t.genState='running';
+  t.genStopRequested=false;
   t.drafts={};
   t.genStep=0;
   schedulePush();
@@ -4426,7 +4641,7 @@ function renderPersonsTab(){
     <div class="person-grid">`;
   PERSONS.forEach((p,i)=>{
     const ps = state.persons[i]||p;
-    const tasks = state.tasks.filter(t=>t.owner===p.name || Object.values(t.platOwners||{}).includes(p.name) || (t.splits||[]).some(s=>s.owner===p.name) || (t.media||[]).some(m=>m.owner===p.name));
+    const tasks = state.tasks.filter(t=>t.status!=='terminated'&&(t.owner===p.name || Object.values(t.platOwners||{}).includes(p.name) || (t.splits||[]).some(s=>s.owner===p.name) || (t.media||[]).some(m=>m.owner===p.name)));
     const doing = tasks.filter(t=>t.status!=='done').length;
     const done = ps.done||0;
     const goal = ps.goal||10;

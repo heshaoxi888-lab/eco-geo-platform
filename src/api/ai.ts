@@ -98,6 +98,7 @@ export async function handleAI(request: Request, env: Env): Promise<Response> {
     try {
       upstream = await fetch(COZE_CHAT_ENDPOINT, {
         method: 'POST',
+        signal: request.signal,
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${env.COZE_PAT.trim()}`
